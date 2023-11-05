@@ -1,0 +1,156 @@
+---
+title: "Homework 5"
+author: "Kairui Wang"
+date: "2023-11-05"
+output: github_document
+---
+
+```{r, include = FALSE, message = FALSE, warning = FALSE}
+library(tidyverse)
+knitr::opts_chunk$set(
+	echo = TRUE,
+	warning = FALSE,
+  fig.width = 6,
+  fig.asp = .6,
+  out.width = "90%"
+)
+
+theme_set(theme_minimal() + theme(legend.position = "bottom"))
+
+options(
+  ggplot2.continuous.colour = "viridis",
+  ggplot2.continuous.fill = "viridis"
+)
+
+scale_colour_discrete = scale_colour_viridis_d
+scale_fill_discrete = scale_fill_viridis_d
+
+```
+
+Load key packages.
+
+```{r,message = FALSE}
+library(tidyverse)
+library(rvest)
+library(broom)
+library(plotly)
+```
+
+Set seed for reproducibility.
+
+```{r}
+set.seed(12345)
+```
+
+
+## Problem 1
+
+Read the dataset from the corrected URL
+
+```{r}
+data_url <- "https://raw.githubusercontent.com/washingtonpost/data-homicides/master/homicide-data.csv"
+homicide_data <- read_csv(data_url)
+```
+
+Describe the raw data:
+
+```{r}
+glimpse(homicide_data)
+head(homicide_data)
+```
+
+Create a city_state variable and summarize the data within cities
+
+```{r}
+sum_homicide_data <- 
+  homicide_data |> 
+  mutate(city_state = paste(city, state, sep = ", ")) |> 
+  group_by(city_state) |> 
+  summarize(
+    total_homicides = n(),
+    unsolved_homicides = sum(disposition %in% c("Closed without arrest", "Open/No arrest"))
+  ) |> 
+  ungroup()
+
+print(sum_homicide_data)
+```
+
+Filter the data for Baltimore, MD
+
+```{r}
+baltimore_data <- 
+  homicide_data |> 
+  filter(city == "Baltimore" & state == "MD")
+```
+
+Use prop.test to estimate the proportion of unsolved homicides
+
+```{r}
+prop_test_result <- 
+  prop.test(
+  sum(baltimore_data$disposition %in% c("Closed without arrest", "Open/No arrest")),
+  nrow(baltimore_data)
+)
+```
+
+Apply broom::tidy to the prop.test result
+
+```{r}
+baltimore_tidy <- 
+  tidy(prop_test_result)
+```
+
+Extract the estimated proportion and confidence intervals
+
+```{r}
+baltimore_proportion <- baltimore_tidy$p.value
+baltimore_conf_interval <- prop_test_result$conf.int
+```
+
+Print the results
+
+```{r}
+print(baltimore_tidy)
+```
+
+Create a list column for each city and apply prop.test
+
+```{r}
+result_df <- 
+  homicide_data |> 
+  group_by(city) |> 
+  nest() |> 
+  mutate(
+    prop_test_result = map(data, ~ prop.test(
+      sum(.x$disposition %in% c("Closed without arrest", "Open/No arrest")),
+      nrow(.x)
+    )),
+    tidy_results = map(prop_test_result, broom::tidy)
+  ) |> 
+  unnest(tidy_results) |> 
+  select(city, estimate, conf.low, conf.high)
+
+print(result_df)
+
+```
+
+Create a plot
+
+```{r}
+result_df |> 
+  mutate(city = fct_reorder(city, estimate)) |> 
+  ggplot(aes(x = estimate, y = city)) +
+  geom_point(size = 3) +
+  geom_errorbarh(aes(xmin = conf.low, xmax = conf.high), height = 0.2) +
+  labs(
+    x = "Proportion of Unsolved Homicides",
+    y = "City",
+    title = "Proportion of Unsolved Homicides by City",
+    subtitle = "Estimates and Confidence Intervals"
+  ) +
+   theme_minimal()
+
+```
+
+
+
